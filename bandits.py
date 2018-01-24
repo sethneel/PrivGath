@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.stats import truncnorm
-
+from operator import add
 
 """Module runs differentially private UCB Experiments with truncated gaussian noise. This includes 
 an implementation of the counter mechanism https://eprint.iacr.org/2010/076.pdf
@@ -39,11 +39,14 @@ def get_min_dex(binary_string):
         ind += 1
 
 
-def get_ucb(history = None):
+def get_ucb(delta, history=None):
     """Return the index of the arm with highest UCB."""
     if history is None:
         return None
-
+    K = len(history.keys())
+    ucb_list = [history[i][0]/history[i][1] + np.sqrt(2*np.log(1/delta)/history[i][1]) for i in range(K)]
+    ucb = np.argmax(ucb_list)
+    return ucb
 
 
 def update_history(history, index, mus):
@@ -52,7 +55,7 @@ def update_history(history, index, mus):
     # pull arm i
     x_it = get_sample(mus[index])
     history[index][0] += x_it
-    history[index][1] += 1
+    history[index][1] += 1.0
     return history
 
 
@@ -61,7 +64,7 @@ def get_means(gap=.1):
 
     means = []
     mu = 1
-    while(mu > 0):
+    while mu > 0:
         means.append(mu)
         mu = mu-gap
     return means
@@ -85,15 +88,15 @@ def ucb_bandit_run(time_horizon=500, gap=.1):
     means = get_means(gap)
     K = len(means)
     # history at time 0
-    history = {i: [0, 0] for i in range(K)}
+    history = dict((i, [0, 0]) for i in range(K))
     t = 1
     # Sample initial point from each arm
     while t <= K:
-        history[t] = [get_sample(means[t-1], 1)]
+        history[t-1] = [get_sample(means[t-1]), 1]
         t += 1
     # Run UCB Algorithm from t = K + 1 to t = time_horizon
     while t <= time_horizon:
-        arm_pull = get_ucb(history)
+        arm_pull = get_ucb(.9, history)
         history = update_history(history, arm_pull, means)
         t += 1
     return history
@@ -105,10 +108,32 @@ def priv_ucb_bandit_run(time_horizon=500, gap=.1, epsilon=.1):
     """
 
 
-
 #
 # Run experiment
 #
 # initialize parameters
-num_digits = 10
+num_digits = 9
 T = np.power(2, num_digits)
+gap = .1
+mus = get_means(gap)
+K = len(mus)
+cum_mu_hat = [0]*K
+n_sims = 10000
+
+
+# Get sample means up to time T
+# Average over n_sims iterations
+# Compute Bias
+
+for j in range(n_sims):
+    H_T = ucb_bandit_run(time_horizon=T, gap=gap)
+    mu_hat = [H_T[i][0]/H_T[i][1] for i in range(K)]
+    cum_mu_hat = map(add, cum_mu_hat, mu_hat)
+
+# Compute the bias.
+average_mu_hat = np.multiply(1.0/n_sims, cum_mu_hat)
+bias = map(add, mus, np.multiply(-1.0, average_mu_hat))
+print(bias)
+#  95% conf. lower bound for the bias (Hoeffding Inequality)
+w = np.sqrt(-1*np.log(.975/2)/(2.0*n_sims))
+print('confidence width for bias: {}'.format(w))
