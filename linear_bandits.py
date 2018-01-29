@@ -1,7 +1,7 @@
 
 import numpy as np
 from operator import add
-
+from scipy import stats
 """Module runs differentially private UCB Experiments with truncated gaussian noise. This includes 
 an implementation of the counter mechanism https://eprint.iacr.org/2010/076.pdf
 
@@ -24,10 +24,12 @@ def get_min_dex(binary_string):
 
 def get_lin_ucb(t, delta, lbda, contexts, history=None):
     """Return the index of the arm with highest UCB."""
-    if history is None:
-        return None
     K = len(history.keys())
     est_payoffs = [np.dot(history[i][0], contexts[i]) for i in range(K)]
+    if lbda == 0:
+        sigma = [np.sqrt(np.dot(np.dot(history[i][1], np.transpose(contexts[i])))) for j in range(K)]
+        ucbs = [stats.norm.interval(1.0-delta, loc=est_payoffs[i], sigma=sigma[i]) for i in range(K)]
+
     ci_scale = [np.sqrt(2*K*np.log(1.0/delta*(1 + history[i][3]/lbda))) for i in range(K)]
     widths = [matrix_norm(history[i][1], contexts[i])*ci_scale[i] for i in range(K)]
     ucb_list = map(add, est_payoffs, widths)
@@ -82,7 +84,7 @@ def get_betas(d, k):
 def get_sample(beta, x):
     """Return sample from beta*x + uniform."""
 
-    return np.random.uniform(-1, 1) + np.multiply(beta, x)
+    return np.random.uniform(-1, 1) + np.dot(beta, x)
 
 
 def gen_contexts(k, d):
@@ -112,4 +114,17 @@ def ucb_bandit_run(K, d, lbda, delta, time_horizon=500):
     return history, betas
 
 
-H_T = ucb_bandit_run(10, 6, 1, .99, 500)
+K = 5
+d = 6
+lbda = .00001
+delta = .99
+T = 50000
+H_T = ucb_bandit_run(K, d, lbda, delta, T)
+hist = H_T[0]
+beta = H_T[1]
+most_pulls = np.max([hist[i][3] for i in range(K)])
+most_pulled = np.argmax([hist[i][3] for i in range(K)])
+least_pulled = np.argmin([hist[i][3] for i in range(K)])
+print('most pulls: {}'.format(most_pulls))
+print(hist[most_pulled][0])
+print(beta[most_pulled])
