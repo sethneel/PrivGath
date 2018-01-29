@@ -97,6 +97,7 @@ def ucb_bandit_run(time_horizon=500, gap=.1):
     """"Run UCB algorithm up to time_horizon with K arms of gap .1
         Return the history up to time_horizon
     """
+    arm_pulls = []
     means = get_means(gap)
     K = len(means)
     # history at time 0
@@ -105,10 +106,12 @@ def ucb_bandit_run(time_horizon=500, gap=.1):
     # Sample initial point from each arm
     while t <= K:
         history[t-1] = [get_sample(means[t-1]), 1]
+        arm_pulls.append(t-1)
         t += 1
     # Run UCB Algorithm from t = K + 1 to t = time_horizon
     while t <= time_horizon:
         arm_pull = get_ucb(.9, history)
+        arm_pulls.append(arm_pull)
         history = update_history(history, arm_pull, means)
         t += 1
     return history
@@ -118,6 +121,7 @@ def priv_ucb_bandit_run(time_horizon=500, delta=.95, gap=.1, epsilon=.1):
     """"Run epsilon-Private UCB algorithm w/ private counter
      up to time_horizon with K arms of gap .1. Return the history up to time_horizon.
     """
+    arm_pulls = []
     means = get_means(gap)
     K = len(means)
     priv_noises = private_counter(K, time_horizon, epsilon, sensitivity=2)
@@ -127,26 +131,37 @@ def priv_ucb_bandit_run(time_horizon=500, delta=.95, gap=.1, epsilon=.1):
     # Sample initial point from each arm
     while t <= K:
         history[t-1] = [get_sample(means[t-1]), 1]
+        arm_pulls.append(t - 1)
         t += 1
     # Run UCB Algorithm from t = K + 1 to t = time_horizon
     while t <= time_horizon:
         arm_pull = get_priv_ucb(delta, history, priv_noises, time_horizon, epsilon)
+        arm_pulls.append(arm_pull)
         history = update_history(history, arm_pull, means)
         t += 1
-    return history
+    return history, arm_pulls
 
+# compute the cumulative pseudo-regret
+def compute_avg_pseudo_regret(arm_pulls, mus):
+    time = len(arm_pulls)
+    pseudo_reward = [mus[arm_pulls[i]] for i in range(time)]
+    cum_pseudo_reward = np.cumsum(pseudo_reward)
+    opt_mean = np.max(mus)
+    cum_opt_reward = [(i+1)*opt_mean for i in range(time)]
+    cum_pseudo_regret = [1.0/(j+1)*(cum_opt_reward[j]-cum_pseudo_reward[j]) for j in range(time)]
+    return cum_pseudo_regret
 
 #
 # Run experiment
 #
 # initialize parameters
-num_digits = 9
+num_digits = 20
 T = np.power(2, num_digits)
 gap = .1
 mus = get_means(gap)
 K = len(mus)
 cum_mu_hat = [0]*K
-n_sims = 10000
+n_sims = 10
 
 
 # Get sample means up to time T
@@ -154,9 +169,12 @@ n_sims = 10000
 # Compute Bias
 
 for j in range(n_sims):
-    H_T = ucb_bandit_run(time_horizon=T, gap=gap)
+    bandit = ucb_bandit_run(time_horizon=T, gap=gap)
+    H_T = bandit[0]
     mu_hat = [H_T[i][0]/H_T[i][1] for i in range(K)]
     cum_mu_hat = map(add, cum_mu_hat, mu_hat)
+    arms_pulled = bandit[1]
+    av_regret = compute_avg_pseudo_regret(arms_pulled, mus)
 
 # Compute the bias.
 average_mu_hat = np.multiply(1.0/n_sims, cum_mu_hat)
@@ -170,9 +188,12 @@ print('confidence width for bias: {}'.format(w))
 # Private Version
 cum_mu_hat = [0]*K
 for j in range(n_sims):
-    H_T = priv_ucb_bandit_run(time_horizon=T, delta=.95, gap=.1, epsilon=.1)
-    mu_hat = [H_T[i][0]/H_T[i][1] for i in range(K)]
+    private_bandit = priv_ucb_bandit_run(time_horizon=T, delta=.95, gap=.1, epsilon=1/np.sqrt(T*K))
+    H_T_private = private_bandit[0]
+    mu_hat = [H_T_private[i][0]/H_T_private[i][1] for i in range(K)]
     cum_mu_hat = map(add, cum_mu_hat, mu_hat)
+    arms_pulled = private_bandit[1]
+    av_regret_priv = compute_avg_pseudo_regret(arms_pulled, mus)
 
 # Compute the bias.
 average_mu_hat = np.multiply(1.0/n_sims, cum_mu_hat)
@@ -181,3 +202,7 @@ print('private bias: {}'.format(priv_bias))
 #  95% conf. lower bound for the bias (Hoeffding Inequality)
 w_priv = np.sqrt(-1*np.log(.975/2)/(2.0*n_sims))
 print('confidence width for bias: {}'.format(w_priv))
+
+
+
+
