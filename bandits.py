@@ -168,7 +168,7 @@ if __name__ == "__main__":
     cum_mu_hat = [0]*K
     n_sims = int(nsims)
     cum_av_regret = [0]*T
-
+    print('T: {}, gap: {}, n_sims: {}'.format(T, gap, nsims))
     # Get sample means up to time T
     # Average over n_sims iterations
     # Compute Bias
@@ -204,6 +204,7 @@ if __name__ == "__main__":
     plt_ucb.ylabel('bias')
     plt_ucb.title('UCB bias per arm')
     plt_ucb.savefig('private_ucb_bias.pdf')
+    plt_ucb.close()
 
 
     # Private Version
@@ -240,7 +241,7 @@ if __name__ == "__main__":
     plt_ucb_priv.ylabel('bias')
     plt_ucb_priv.title('Private UCB bias per arm: epsilon = {}'.format(np.round(eps, 2)))
     plt_ucb_priv.savefig('private_ucb_bias_eps_{}.pdf'.format(np.round(eps, 2)))
-
+    plt_ucb_priv.close()
     # plot the regret over time
     plt.plot(av_av_regret)
     plt.plot(priv_av_av_regret)
@@ -248,3 +249,4 @@ if __name__ == "__main__":
     plt.xlabel('T')
     plt.ylabel('average cumulative regret')
     plt.savefig('regret_eps_{}.pdf'.format(np.round(eps, 2)))
+    plt.close()
