@@ -168,7 +168,7 @@ if __name__ == "__main__":
     cum_mu_hat = [0]*K
     n_sims = int(nsims)
     cum_av_regret = [0]*T
-    print('T: {}, gap: {}, n_sims: {}'.format(T, gap, nsims))
+    print('T: {}, K: {}, gap: {}, n_sims: {}'.format(T, K, gap, nsims))
     # Get sample means up to time T
     # Average over n_sims iterations
     # Compute Bias
