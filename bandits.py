@@ -1,7 +1,8 @@
 import numpy as np
 from scipy.stats import truncnorm
 from operator import add
-
+import matplotlib.pyplot as plt
+import sys
 """Module runs differentially private UCB Experiments with truncated gaussian noise. This includes 
 an implementation of the counter mechanism https://eprint.iacr.org/2010/076.pdf
 """
@@ -114,7 +115,7 @@ def ucb_bandit_run(time_horizon=500, gap=.1):
         arm_pulls.append(arm_pull)
         history = update_history(history, arm_pull, means)
         t += 1
-    return history
+    return [history, arm_pulls]
 
 
 def priv_ucb_bandit_run(time_horizon=500, delta=.95, gap=.1, epsilon=.1):
@@ -139,10 +140,12 @@ def priv_ucb_bandit_run(time_horizon=500, delta=.95, gap=.1, epsilon=.1):
         arm_pulls.append(arm_pull)
         history = update_history(history, arm_pull, means)
         t += 1
-    return history, arm_pulls
+    return [history, arm_pulls]
 
-# compute the cumulative pseudo-regret
+
 def compute_avg_pseudo_regret(arm_pulls, mus):
+    """"Compute the cumulative average regret of bandit algorithm with history arm_pulls and means mus.
+    """
     time = len(arm_pulls)
     pseudo_reward = [mus[arm_pulls[i]] for i in range(time)]
     cum_pseudo_reward = np.cumsum(pseudo_reward)
@@ -151,58 +154,97 @@ def compute_avg_pseudo_regret(arm_pulls, mus):
     cum_pseudo_regret = [1.0/(j+1)*(cum_opt_reward[j]-cum_pseudo_reward[j]) for j in range(time)]
     return cum_pseudo_regret
 
+
+# Run bandit experiments, generate bias & regret plots
 #
-# Run experiment
-#
-# initialize parameters
-num_digits = 20
-T = np.power(2, num_digits)
-gap = .1
-mus = get_means(gap)
-K = len(mus)
-cum_mu_hat = [0]*K
-n_sims = 10
+if __name__ == "__main__":
+    num_digits, gap, nsims = sys.argv[1:]
+    # initialize parameters
+    num_digits = int(num_digits)
+    T = np.power(2, num_digits)
+    gap = float(gap)
+    mus = get_means(gap)
+    K = len(mus)
+    cum_mu_hat = [0]*K
+    n_sims = int(nsims)
+    cum_av_regret = [0]*T
+
+    # Get sample means up to time T
+    # Average over n_sims iterations
+    # Compute Bias
+
+    for j in range(n_sims):
+        bandit = ucb_bandit_run(time_horizon=T, gap=gap)
+        H_T = bandit[0]
+        mu_hat = [H_T[i][0]/H_T[i][1] for i in range(K)]
+        cum_mu_hat = map(add, cum_mu_hat, mu_hat)
+        arms_pulled = bandit[1]
+        av_regret = compute_avg_pseudo_regret(arms_pulled, mus)
+        cum_av_regret = map(add, cum_av_regret, av_regret)
+
+    # Compute the bias.
+    average_mu_hat = np.multiply(1.0/n_sims, cum_mu_hat)
+    bias = map(add, average_mu_hat, np.multiply(-1.0, mus))
+    av_av_regret = list(np.multiply(cum_av_regret, 1.0/n_sims))
+    #  95% conf. lower bound for the bias (Hoeffding Inequality)
+    w = np.sqrt(-1*np.log(.975/2)/(2.0*n_sims))
+
+    print(bias)
+    print('non-private bias: {}'.format(bias))
+    print('confidence width for bias: {}'.format(w))
+
+    # plot the bias vs the arm_mean (barplot with CI)
+    bars = bias
+    yer1 = [w]*len(bias)
+    bar_width = gap
+    r1 = [x + bar_width-gap for x in mus]
+    plt_ucb = plt
+    plt_ucb.bar(r1, bars, width=bar_width, color='green', edgecolor='black', yerr=yer1, capsize=7, label='bias')
+    plt_ucb.xlabel('arm mean')
+    plt_ucb.ylabel('bias')
+    plt_ucb.title('UCB bias per arm')
+    plt_ucb.savefig('private_ucb_bias.pdf')
 
 
-# Get sample means up to time T
-# Average over n_sims iterations
-# Compute Bias
+    # Private Version
+    cum_mu_hat = [0]*K
+    eps = 1/np.sqrt(T*K)
+    cum_av_priv_regret = [0]*T
+    for j in range(n_sims):
+        private_bandit = priv_ucb_bandit_run(time_horizon=T, delta=.95, gap=.1, epsilon=eps)
+        H_T_private = private_bandit[0]
+        mu_hat = [H_T_private[i][0]/H_T_private[i][1] for i in range(K)]
+        cum_mu_hat = map(add, cum_mu_hat, mu_hat)
+        arms_pulled = private_bandit[1]
+        av_regret_priv = compute_avg_pseudo_regret(arms_pulled, mus)
+        cum_av_priv_regret = map(add, av_regret_priv, cum_av_priv_regret)
 
-for j in range(n_sims):
-    bandit = ucb_bandit_run(time_horizon=T, gap=gap)
-    H_T = bandit[0]
-    mu_hat = [H_T[i][0]/H_T[i][1] for i in range(K)]
-    cum_mu_hat = map(add, cum_mu_hat, mu_hat)
-    arms_pulled = bandit[1]
-    av_regret = compute_avg_pseudo_regret(arms_pulled, mus)
+    # Compute the bias.
+    average_mu_hat = np.multiply(1.0/n_sims, cum_mu_hat)
+    priv_bias = map(add, mus, np.multiply(-1.0, average_mu_hat))
+    priv_av_av_regret = list(np.multiply(cum_av_priv_regret, 1.0/n_sims))
+    w_priv = np.sqrt(-1*np.log(.975/2)/(2.0*n_sims))
 
-# Compute the bias.
-average_mu_hat = np.multiply(1.0/n_sims, cum_mu_hat)
-bias = map(add, mus, np.multiply(-1.0, average_mu_hat))
-print(bias)
-#  95% conf. lower bound for the bias (Hoeffding Inequality)
-w = np.sqrt(-1*np.log(.975/2)/(2.0*n_sims))
-print('non-private bias: {}'.format(bias))
-print('confidence width for bias: {}'.format(w))
-
-# Private Version
-cum_mu_hat = [0]*K
-for j in range(n_sims):
-    private_bandit = priv_ucb_bandit_run(time_horizon=T, delta=.95, gap=.1, epsilon=1/np.sqrt(T*K))
-    H_T_private = private_bandit[0]
-    mu_hat = [H_T_private[i][0]/H_T_private[i][1] for i in range(K)]
-    cum_mu_hat = map(add, cum_mu_hat, mu_hat)
-    arms_pulled = private_bandit[1]
-    av_regret_priv = compute_avg_pseudo_regret(arms_pulled, mus)
-
-# Compute the bias.
-average_mu_hat = np.multiply(1.0/n_sims, cum_mu_hat)
-priv_bias = map(add, mus, np.multiply(-1.0, average_mu_hat))
-print('private bias: {}'.format(priv_bias))
-#  95% conf. lower bound for the bias (Hoeffding Inequality)
-w_priv = np.sqrt(-1*np.log(.975/2)/(2.0*n_sims))
-print('confidence width for bias: {}'.format(w_priv))
+    print('private bias: {}'.format(priv_bias))
+    print('confidence width for bias: {}'.format(w_priv))
+    print('max of private bias: {}'.format(np.max(np.abs(priv_bias))))
 
 
+    # plot the bias vs the arm_mean (barplot with CI)
+    bars = priv_bias
+    yer1 = [w_priv]*len(priv_bias)
+    bar_width = gap
+    plt_ucb_priv = plt
+    plt_ucb_priv.bar(mus, bars, width=bar_width, color='green', edgecolor='black', yerr=yer1, capsize=7, label='bias')
+    plt_ucb_priv.xlabel('arm mean')
+    plt_ucb_priv.ylabel('bias')
+    plt_ucb_priv.title('Private UCB bias per arm: epsilon = {}'.format(np.round(eps, 2)))
+    plt_ucb_priv.savefig('private_ucb_bias_eps_{}.pdf'.format(np.round(eps, 2)))
 
-
+    # plot the regret over time
+    plt.plot(av_av_regret)
+    plt.plot(priv_av_av_regret)
+    plt.title('cumulative regret: UCB vs. {}-private UCB'.format(np.round(eps, 2)))
+    plt.xlabel('T')
+    plt.ylabel('average cumulative regret')
+    plt.savefig('regret_eps_{}.pdf'.format(np.round(eps, 2)))
