@@ -158,11 +158,11 @@ def compute_avg_pseudo_regret(arm_pulls, mus):
 # Run bandit experiments, generate bias & regret plots
 #
 if __name__ == "__main__":
-    num_digits, gap, nsims = sys.argv[1:]
+    num_digits, nsims = sys.argv[1:]
     # initialize parameters
     num_digits = int(num_digits)
     T = np.power(2, num_digits)
-    gap = float(gap)
+    gap = 1.0/np.sqrt(T)
     mus = get_means(gap)
     K = len(mus)
     cum_mu_hat = [0]*K
