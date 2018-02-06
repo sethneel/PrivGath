@@ -78,17 +78,22 @@ def empty_history(d, K):
 
 def get_betas(d, k):
     """Return list of k, d-dimensional beta vectors"""
-    return [[np.random.uniform(-1,1) for _ in range(d)] for _ in range(k)]
+    betas = [[np.random.uniform(-1,1) for _ in range(d)] for _ in range(k)]
+    norm_betas = [b/np.linalg.norm(b) for b in betas]
+    return norm_betas
 
 
 def get_sample(beta, x):
-    """Return sample from beta*x + uniform."""
+    """Return sample from beta*x + norm."""
 
-    return np.random.uniform(-1, 1) + np.dot(beta, x)
+    # return np.random.uniform(-1, 1) + np.dot(beta, x)
+    return np.random.normal(0, 1) + np.dot(beta,x)
 
 
 def gen_contexts(k, d):
-    return [[np.random.uniform(-1, 1) for _ in xrange(d)] for _ in xrange(k)]
+    contexts = [[np.random.uniform(-1, 1) for _ in xrange(d)] for _ in xrange(k)]
+    norm_contexts = [b/np.linalg.norm(b) for b in contexts]
+    return norm_contexts
 
 
 def ucb_bandit_run(K, d, lbda, delta, time_horizon=500):
@@ -114,17 +119,37 @@ def ucb_bandit_run(K, d, lbda, delta, time_horizon=500):
     return history, betas
 
 
+# perform two-sided z-test for beta_ik == c_i, sigma = 1
+def t_test_reg(hist_i, k, c_k):
+    beta_hat = hist_i[0]
+    XTX_inv = hist_i[1]
+    b_k = beta_hat[k]
+    sigma = XTX_inv[k, k]
+    z_score = (b_k-c_k)/sigma
+    p_value = 2.0*min(1-stats.norm.cdf(z_score), stats.norm.cdf(z_score))
+    return p_value
+
+
 K = 5
-d = 6
+d = 5
 lbda = .00001
 delta = .99
-T = 50000
-H_T = ucb_bandit_run(K, d, lbda, delta, T)
-hist = H_T[0]
-beta = H_T[1]
-most_pulls = np.max([hist[i][3] for i in range(K)])
-most_pulled = np.argmax([hist[i][3] for i in range(K)])
-least_pulled = np.argmin([hist[i][3] for i in range(K)])
-print('most pulls: {}'.format(most_pulls))
-print(hist[most_pulled][0])
-print(beta[most_pulled])
+T = 500
+p_values = []
+max_arm_bias = [0]*K
+n_sims = 1000
+for _ in range(n_sims):
+    H_T = ucb_bandit_run(K, d, lbda, delta, T)
+    hist = H_T[0]
+    beta = H_T[1]
+    most_pulls = np.max([hist[i][3] for i in range(K)])
+    most_pulled = np.argmax([hist[i][3] for i in range(K)])
+    least_pulled = np.argmin([hist[i][3] for i in range(K)])
+    least_pulls = np.min([hist[i][3] for i in range(K)])
+    print('least pulls: {}'.format(least_pulls))
+    print('most pulls: {}'.format(most_pulls))
+    print(hist[most_pulled][0])
+    print(beta[most_pulled])
+    k = np.argmax(np.abs(beta[least_pulled]))
+    p_val = t_test_reg(hist[least_pulled], k, beta[least_pulled][k])
+    p_values.append(p_val)

@@ -203,16 +203,16 @@ if __name__ == "__main__":
     plt_ucb.xlabel('arm mean')
     plt_ucb.ylabel('bias')
     plt_ucb.title('UCB bias per arm')
-    plt_ucb.savefig('private_ucb_bias.pdf')
+    plt_ucb.savefig('ucb_bias.pdf')
     plt_ucb.close()
 
 
     # Private Version
     cum_mu_hat = [0]*K
-    eps = 1/np.sqrt(T*K)
+    eps = 1.0/np.sqrt(T*K)
     cum_av_priv_regret = [0]*T
     for j in range(n_sims):
-        private_bandit = priv_ucb_bandit_run(time_horizon=T, delta=.95, gap=.1, epsilon=eps)
+        private_bandit = priv_ucb_bandit_run(time_horizon=T, delta=.95, gap=gap, epsilon=eps)
         H_T_private = private_bandit[0]
         mu_hat = [H_T_private[i][0]/H_T_private[i][1] for i in range(K)]
         cum_mu_hat = map(add, cum_mu_hat, mu_hat)
@@ -242,6 +242,8 @@ if __name__ == "__main__":
     plt_ucb_priv.title('Private UCB bias per arm: epsilon = {}'.format(np.round(eps, 2)))
     plt_ucb_priv.savefig('private_ucb_bias_eps_{}.pdf'.format(np.round(eps, 2)))
     plt_ucb_priv.close()
+
+
     # plot the regret over time
     plt.plot(av_av_regret)
     plt.plot(priv_av_av_regret)
