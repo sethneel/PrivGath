@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import sys
 """Module runs differentially private UCB Experiments with truncated gaussian noise. This includes 
 an implementation of the counter mechanism https://eprint.iacr.org/2010/076.pdf
+Usage: python bandits.py 15 1000 5
 """
 
 
@@ -61,7 +62,7 @@ def update_history(history, index, mus):
     return history
 
 
-def get_means(gap=.1):
+def get_means(gap=.1, k=5):
     """Return list of 1/gap means separated by gap."""
 
     means = []
@@ -69,7 +70,7 @@ def get_means(gap=.1):
     while mu > 0:
         means.append(mu)
         mu = mu-gap
-    return means
+    return means[0:k]
 
 
 def get_sample(mu):
@@ -87,14 +88,15 @@ def get_priv_ucb(delta, history, priv_noises, T, epsilon):
     if history is None:
         return None
     K = len(history.keys())
-    gamma = K*np.power(np.log(T), 2)*np.log(K*T*np.log(T)*1.0/delta)*1.0/epsilon
-    noisy_means = [(history[i][0] + priv_noises[i][int(history[i][1])])/history[i][1] for i in range(K)]
+    #gamma = K*np.power(np.log(T), 2)*np.log(K*T*np.log(T)*1.0/delta)*1.0/epsilon
+    gamma = 0
+    noisy_means = [(history[i][0]/history[i][1] + priv_noises[i][int(history[i][1])])/history[i][1] for i in range(K)]
     ucb_list = [noisy_means[i] + np.sqrt(2*np.log(1/delta)/history[i][1]) + gamma/history[i][1] for i in range(K)]
     ucb = np.argmax(ucb_list)
     return ucb
 
 
-def ucb_bandit_run(time_horizon=500, gap=.1):
+def ucb_bandit_run(time_horizon=500, gap=.1, delta=.95):
     """"Run UCB algorithm up to time_horizon with K arms of gap .1
         Return the history up to time_horizon
     """
@@ -111,7 +113,7 @@ def ucb_bandit_run(time_horizon=500, gap=.1):
         t += 1
     # Run UCB Algorithm from t = K + 1 to t = time_horizon
     while t <= time_horizon:
-        arm_pull = get_ucb(.9, history)
+        arm_pull = get_ucb(delta, history)
         arm_pulls.append(arm_pull)
         history = update_history(history, arm_pull, means)
         t += 1
@@ -158,13 +160,13 @@ def compute_avg_pseudo_regret(arm_pulls, mus):
 # Run bandit experiments, generate bias & regret plots
 #
 if __name__ == "__main__":
-    num_digits, nsims = sys.argv[1:]
+    num_digits, K,  nsims = sys.argv[1:]
     # initialize parameters
     num_digits = int(num_digits)
-    T = np.power(2, num_digits)
+    T = int(np.power(2.0, num_digits))
     gap = 1.0/np.sqrt(T)
-    mus = get_means(gap)
-    K = len(mus)
+    K = int(K)
+    mus = get_means(gap, K)
     cum_mu_hat = [0]*K
     n_sims = int(nsims)
     cum_av_regret = [0]*T
@@ -174,7 +176,7 @@ if __name__ == "__main__":
     # Compute Bias
 
     for j in range(n_sims):
-        bandit = ucb_bandit_run(time_horizon=T, gap=gap)
+        bandit = ucb_bandit_run(time_horizon=T, gap=gap, delta=.95)
         H_T = bandit[0]
         mu_hat = [H_T[i][0]/H_T[i][1] for i in range(K)]
         cum_mu_hat = map(add, cum_mu_hat, mu_hat)
@@ -239,16 +241,17 @@ if __name__ == "__main__":
     plt_ucb_priv.bar(mus, bars, width=bar_width, color='green', edgecolor='black', yerr=yer1, capsize=7, label='bias')
     plt_ucb_priv.xlabel('arm mean')
     plt_ucb_priv.ylabel('bias')
-    plt_ucb_priv.title('Private UCB bias per arm: epsilon = {}'.format(np.round(eps, 2)))
+    plt_ucb_priv.title('Private UCB bias per arm: epsilon = {}'.format(np.round(eps, 4)))
     plt_ucb_priv.savefig('private_ucb_bias_eps_{}.pdf'.format(np.round(eps, 2)))
     plt_ucb_priv.close()
 
 
     # plot the regret over time
-    plt.plot(av_av_regret)
-    plt.plot(priv_av_av_regret)
+    plt.plot(av_av_regret, label='nonpriv')
+    plt.plot(priv_av_av_regret, label='private')
     plt.title('cumulative regret: UCB vs. {}-private UCB'.format(np.round(eps, 2)))
     plt.xlabel('T')
     plt.ylabel('average cumulative regret')
+    plt.legend()
     plt.savefig('regret_eps_{}.pdf'.format(np.round(eps, 2)))
     plt.close()

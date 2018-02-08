@@ -1,14 +1,11 @@
-
+from scipy import stats
 import numpy as np
 from operator import add
-from scipy import stats
-"""Module runs differentially private UCB Experiments with truncated gaussian noise. This includes 
-an implementation of the counter mechanism https://eprint.iacr.org/2010/076.pdf
+import matplotlib.pyplot as plt
+import sys
 
-Variables: 
-    - history[i] = (beta_hat, 1/(XTX + lambda I), XTY, N_it) for i in 1...K
-    -
-    -
+"""Module runs linear UCB Experiments with gaussian noise. This includes 
+Usage: python linear_bandits.py 5 5 .001 .99 500 10000
 """
 
 
@@ -46,19 +43,27 @@ def update_history(history, index, contexts, betas):
     """Pull arm index, update and return the history accordingly."""
 
     x_t = contexts[index]
+    d = len(x_t)
+    history[index][4].append(x_t)
     beta_t = betas[index]
     V_t_inv = history[index][1]
     XTY = history[index][2]
     # pull arm i
     y_it = get_sample(beta_t, x_t)
+    history[index][5].append(y_it)
 
     # update 1/(XTX + lambda I): Sherman Morrison Formula
-    if np.linalg.det(V_t_inv) == 0:
-        V_t_inv = np.linalg.pinv(V_t_inv + np.outer(x_t, x_t))
+    if history[index][3] <= d:
+        x_list = history[index][4]
+        XTX = np.zeros((d, d))
+        for x in x_list:
+            XTX += np.outer(x, x)
+        V_t_inv = np.linalg.pinv(XTX)
         history[index][1] = V_t_inv
     else:
         v_inv_x = np.dot(V_t_inv, x_t)
-        history[index][1] = V_t_inv - 1.0/(1 + matrix_norm(V_t_inv, x_t))*np.outer(v_inv_x, v_inv_x)
+        history[index][1] = V_t_inv - 1.0/(1.0 + matrix_norm(V_t_inv, x_t))*np.outer(v_inv_x, v_inv_x)
+
     # update XTY
     XY = np.multiply(y_it, x_t)
     history[index][2] = map(add, XTY, XY)
@@ -72,7 +77,7 @@ def update_history(history, index, contexts, betas):
 def empty_history(d, K):
     """Return empty history, K arms dimension d.
     """
-    start = [[0.0]*d, np.zeros((d, d)), np.zeros(d), 0]
+    start = [[0.0]*d, np.zeros((d, d)), np.zeros(d), 0, [], []]
     return dict((i, start[:]) for i in range(K))
 
 
@@ -87,7 +92,7 @@ def get_sample(beta, x):
     """Return sample from beta*x + norm."""
 
     # return np.random.uniform(-1, 1) + np.dot(beta, x)
-    return np.random.normal(0, 1) + np.dot(beta,x)
+    return np.random.normal(0, 1) + np.dot(beta, x)
 
 
 def gen_contexts(k, d):
@@ -129,27 +134,34 @@ def t_test_reg(hist_i, k, c_k):
     p_value = 2.0*min(1-stats.norm.cdf(z_score), stats.norm.cdf(z_score))
     return p_value
 
+if __name__ == "__main__":
+    K, d, lbda, delta, T, n_sims = sys.argv[1:]
+    K = int(K)
+    d = int(d)
+    lbda = float(lbda)
+    delta = float(delta)
+    T = int(T)
+    p_values = []
+    max_arm_bias = [0]*K
+    n_sims = int(n_sims)
+    for _ in range(n_sims):
+        H_T = ucb_bandit_run(K, d, lbda, delta, T)
+        hist = H_T[0]
+        beta = H_T[1]
+        most_pulls = np.max([hist[i][3] for i in range(K)])
+        most_pulled = np.argmax([hist[i][3] for i in range(K)])
+        least_pulled = np.argmin([hist[i][3] for i in range(K)])
+        least_pulls = np.min([hist[i][3] for i in range(K)])
+        print('least pulls: {}'.format(least_pulls))
+        print('most pulls: {}'.format(most_pulls))
+        print(hist[most_pulled][0])
+        print(beta[most_pulled])
+        k = np.argmax(np.abs(beta[most_pulled]))
+        p_val = t_test_reg(hist[most_pulled], k, beta[most_pulled][k])
+        p_values.append(p_val)
 
-K = 5
-d = 5
-lbda = .00001
-delta = .99
-T = 500
-p_values = []
-max_arm_bias = [0]*K
-n_sims = 1000
-for _ in range(n_sims):
-    H_T = ucb_bandit_run(K, d, lbda, delta, T)
-    hist = H_T[0]
-    beta = H_T[1]
-    most_pulls = np.max([hist[i][3] for i in range(K)])
-    most_pulled = np.argmax([hist[i][3] for i in range(K)])
-    least_pulled = np.argmin([hist[i][3] for i in range(K)])
-    least_pulls = np.min([hist[i][3] for i in range(K)])
-    print('least pulls: {}'.format(least_pulls))
-    print('most pulls: {}'.format(most_pulls))
-    print(hist[most_pulled][0])
-    print(beta[most_pulled])
-    k = np.argmax(np.abs(beta[least_pulled]))
-    p_val = t_test_reg(hist[least_pulled], k, beta[least_pulled][k])
-    p_values.append(p_val)
+    # plots: p-value histogram - should be uniformly distributed
+    bins = 25
+    plt.hist(p_values, bins=bins, orientation='horizontal', color='green')
+    plt.title('p-value histogram: t-test with LinUCB')
+    plt.savefig('p-value histogram')
