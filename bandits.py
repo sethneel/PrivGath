@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import sys
 """Module runs differentially private UCB Experiments with truncated gaussian noise. This includes 
 an implementation of the counter mechanism https://eprint.iacr.org/2010/076.pdf
-Usage: python bandits.py 15 1000 5
+Usage: python bandits.py 15 5 1000
 """
 
 
@@ -29,6 +29,7 @@ def private_counter(k, T, epsilon, sensitivity=2):
             alpha_array[i] = np.random.laplace(loc=0, scale=sensitivity*np.log2(T)/eps_prime)  # Laplace noise
             # Noise added to the jth sum is the sum of all of the alphas with nonzero binary representation
             priv_noise[j-1] = np.sum([alpha_array[k] for k in range(min(digits, len(bin_j))) if bin_j[k] == '1'])
+        priv_noise = [u/(q+1) for u, q in enumerate(priv_noise)]
         priv_noises[t] = priv_noise
     return priv_noises
 
@@ -90,8 +91,8 @@ def get_priv_ucb(delta, history, priv_noises, T, epsilon):
     K = len(history.keys())
     #gamma = K*np.power(np.log(T), 2)*np.log(K*T*np.log(T)*1.0/delta)*1.0/epsilon
     gamma = 0
-    noisy_means = [(history[i][0]/history[i][1] + priv_noises[i][int(history[i][1])])/history[i][1] for i in range(K)]
-    ucb_list = [noisy_means[i] + np.sqrt(2*np.log(1/delta)/history[i][1]) + gamma/history[i][1] for i in range(K)]
+    noisy_means = [history[a][0]/history[a][1] + priv_noises[a][int(history[a][1])] for a in range(K)]
+    ucb_list = [noisy_means[b] + np.sqrt(2*np.log(1/delta)/history[b][1]) + gamma/history[b][1] for b in range(K)]
     ucb = np.argmax(ucb_list)
     return ucb
 
