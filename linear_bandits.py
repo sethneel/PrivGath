@@ -159,9 +159,11 @@ if __name__ == "__main__":
         k = np.argmax(np.abs(beta[most_pulled]))
         p_val = t_test_reg(hist[most_pulled], k, beta[most_pulled][k])
         p_values.append(p_val)
-
+    fdr = np.mean([p < .05 for p in p_values])
     # plots: p-value histogram - should be uniformly distributed
     bins = 25
     plt.hist(p_values, bins=bins, orientation='horizontal', color='green')
+    plt.axhline(.05, color='b', linestyle='dashed', linewidth=2)
     plt.title('p-value histogram: t-test with LinUCB')
     plt.savefig('p-value histogram')
+    print('fdr: {}'.format(fdr))

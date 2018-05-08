@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.stats import truncnorm
+# from scipy.stats import truncnorm
 from operator import add
 import matplotlib.pyplot as plt
 import sys
@@ -13,11 +13,11 @@ def private_counter(k, T, epsilon, sensitivity=2):
     """Returns array of T representing sum of laplace noise added to means in epsilon d.p. private counter"""
     priv_noises = dict((u, []) for u in range(k))
     for t in range(k):
-        priv_noise = [0.0]*T
+        priv_noise = [0.0]*int(T)
         eps_prime = epsilon/np.log2(T)
         digits = int(np.ceil(np.log2(T)))
         alpha_array = [0]*digits
-        for j in range(1, T+1):
+        for j in range(1, int(T)+1):
             """Update noise, stored in priv_noise"""
             # Get the binary expansion of j
             bin_j = '{0:b}'.format(j)
@@ -26,12 +26,13 @@ def private_counter(k, T, epsilon, sensitivity=2):
             # Set all other alpha j < i to 0
             for l in range(i):
                 alpha_array[l] = 0
-            alpha_array[i] = np.random.laplace(loc=0, scale=sensitivity*np.log2(T)/eps_prime)  # Laplace noise
+            alpha_array[i] = np.random.laplace(loc=0, scale=sensitivity/eps_prime)  # Laplace noise
             # Noise added to the jth sum is the sum of all of the alphas with nonzero binary representation
             priv_noise[j-1] = np.sum([alpha_array[k] for k in range(min(digits, len(bin_j))) if bin_j[k] == '1'])
-        priv_noise = [u/(q+1) for u, q in enumerate(priv_noise)]
+        priv_noise = [q/(u+1) for u, q in enumerate(priv_noise)]
         priv_noises[t] = priv_noise
     return priv_noises
+
 
 
 def get_min_dex(binary_string):
@@ -63,25 +64,20 @@ def update_history(history, index, mus):
     return history
 
 
-def get_means(gap=.1, k=5):
+def get_means(gap =.1, k=5):
     """Return list of 1/gap means separated by gap."""
 
     means = []
     mu = 1
-    while mu > 0:
+    for _ in range(k):
         means.append(mu)
         mu = mu-gap
-    return means[0:k]
+    return means
 
 
 def get_sample(mu):
-    """Return sample from truncated normal in [0,1] with mean mu."""
-
-    # sample truncated normal in [-mu, 1-mu]
-    mean_s = truncnorm.mean(-mu, 1-mu, 0, 1)
-    s = truncnorm.rvs(-mu,1-mu)
-    # get mean mu
-    s = s - mean_s + mu
+    """Return sample from N(mu, 1)"""
+    s = np.random.normal(mu, 1)
     return s
 
 
@@ -89,21 +85,20 @@ def get_priv_ucb(delta, history, priv_noises, T, epsilon):
     if history is None:
         return None
     K = len(history.keys())
-    #gamma = K*np.power(np.log(T), 2)*np.log(K*T*np.log(T)*1.0/delta)*1.0/epsilon
-    gamma = 0
+    gamma = K*np.power(np.log(T), 2)*np.log(K*T*np.log(T)*1.0/delta)*1.0/epsilon
+    print('gamma:{}'.format(gamma))
     noisy_means = [history[a][0]/history[a][1] + priv_noises[a][int(history[a][1])] for a in range(K)]
     ucb_list = [noisy_means[b] + np.sqrt(2*np.log(1/delta)/history[b][1]) + gamma/history[b][1] for b in range(K)]
     ucb = np.argmax(ucb_list)
     return ucb
 
 
-def ucb_bandit_run(time_horizon=500, gap=.1, delta=.95):
+def ucb_bandit_run(time_horizon=500, gap=.1, K=5):
     """"Run UCB algorithm up to time_horizon with K arms of gap .1
         Return the history up to time_horizon
     """
     arm_pulls = []
-    means = get_means(gap)
-    K = len(means)
+    means = get_means(gap, K)
     # history at time 0
     history = dict((i, [0, 0]) for i in range(K))
     t = 1
@@ -114,34 +109,37 @@ def ucb_bandit_run(time_horizon=500, gap=.1, delta=.95):
         t += 1
     # Run UCB Algorithm from t = K + 1 to t = time_horizon
     while t <= time_horizon:
+        delta = 1.0/(1.0 + t*np.log(t)*np.log(t))
         arm_pull = get_ucb(delta, history)
         arm_pulls.append(arm_pull)
         history = update_history(history, arm_pull, means)
+        print(t)
         t += 1
     return [history, arm_pulls]
 
 
-def priv_ucb_bandit_run(time_horizon=500, delta=.95, gap=.1, epsilon=.1):
+def priv_ucb_bandit_run(time_horizon=500, gap=.1, epsilon=.1, k=5):
     """"Run epsilon-Private UCB algorithm w/ private counter
      up to time_horizon with K arms of gap .1. Return the history up to time_horizon.
     """
     arm_pulls = []
-    means = get_means(gap)
-    K = len(means)
-    priv_noises = private_counter(K, time_horizon, epsilon, sensitivity=2)
+    means = get_means(gap, k)
+    priv_noises = private_counter(k, time_horizon, epsilon, sensitivity=2)
     # history at time 0
-    history = dict((i, [0, 0]) for i in range(K))
+    history = dict((i, [0, 0]) for i in range(k))
     t = 1
     # Sample initial point from each arm
-    while t <= K:
+    while t <= k:
         history[t-1] = [get_sample(means[t-1]), 1]
         arm_pulls.append(t - 1)
         t += 1
     # Run UCB Algorithm from t = K + 1 to t = time_horizon
     while t <= time_horizon:
+        delta = 1.0 / (1.0 + t * np.log(t) * np.log(t))
         arm_pull = get_priv_ucb(delta, history, priv_noises, time_horizon, epsilon)
         arm_pulls.append(arm_pull)
         history = update_history(history, arm_pull, means)
+        print(t)
         t += 1
     return [history, arm_pulls]
 
@@ -150,34 +148,31 @@ def compute_avg_pseudo_regret(arm_pulls, mus):
     """"Compute the cumulative average regret of bandit algorithm with history arm_pulls and means mus.
     """
     time = len(arm_pulls)
-    pseudo_reward = [mus[arm_pulls[i]] for i in range(time)]
+    pseudo_reward = [mus[arm_pulls[m]] for m in range(time)]
     cum_pseudo_reward = np.cumsum(pseudo_reward)
     opt_mean = np.max(mus)
-    cum_opt_reward = [(i+1)*opt_mean for i in range(time)]
-    cum_pseudo_regret = [1.0/(j+1)*(cum_opt_reward[j]-cum_pseudo_reward[j]) for j in range(time)]
+    cum_opt_reward = [(l+1)*opt_mean for l in range(time)]
+    cum_pseudo_regret = [np.multiply(1.0/(1+t), (cum_opt_reward[t]-cum_pseudo_reward[t])) for t in range(time)]
     return cum_pseudo_regret
 
 
 # Run bandit experiments, generate bias & regret plots
 #
 if __name__ == "__main__":
-    num_digits, K,  nsims = sys.argv[1:]
-    # initialize parameters
-    num_digits = int(num_digits)
-    T = int(np.power(2.0, num_digits))
-    gap = 1.0/np.sqrt(T)
+    T, K,  nsims, delta = sys.argv[1:]
+    gap = .05
     K = int(K)
     mus = get_means(gap, K)
     cum_mu_hat = [0]*K
     n_sims = int(nsims)
-    cum_av_regret = [0]*T
+    cum_av_regret = [0]*int(T)
     print('T: {}, K: {}, gap: {}, n_sims: {}'.format(T, K, gap, nsims))
     # Get sample means up to time T
     # Average over n_sims iterations
     # Compute Bias
 
     for j in range(n_sims):
-        bandit = ucb_bandit_run(time_horizon=T, gap=gap, delta=.95)
+        bandit = ucb_bandit_run(time_horizon=T, gap=gap, K=K)
         H_T = bandit[0]
         mu_hat = [H_T[i][0]/H_T[i][1] for i in range(K)]
         cum_mu_hat = map(add, cum_mu_hat, mu_hat)
@@ -194,6 +189,7 @@ if __name__ == "__main__":
 
     print(bias)
     print('non-private bias: {}'.format(bias))
+    print('mean of non-priv bias:{}'.format(np.mean(np.abs(bias))))
     print('confidence width for bias: {}'.format(w))
 
     # plot the bias vs the arm_mean (barplot with CI)
@@ -212,10 +208,11 @@ if __name__ == "__main__":
 
     # Private Version
     cum_mu_hat = [0]*K
-    eps = 1.0/np.sqrt(T*K)
-    cum_av_priv_regret = [0]*T
+    #eps = 1.0/np.sqrt(T*K)
+    eps = .05
+    cum_av_priv_regret = [0]*int(T)
     for j in range(n_sims):
-        private_bandit = priv_ucb_bandit_run(time_horizon=T, delta=.95, gap=gap, epsilon=eps)
+        private_bandit = priv_ucb_bandit_run(time_horizon=T, gap=gap, epsilon=eps, k=K)
         H_T_private = private_bandit[0]
         mu_hat = [H_T_private[i][0]/H_T_private[i][1] for i in range(K)]
         cum_mu_hat = map(add, cum_mu_hat, mu_hat)
@@ -231,7 +228,7 @@ if __name__ == "__main__":
 
     print('private bias: {}'.format(priv_bias))
     print('confidence width for bias: {}'.format(w_priv))
-    print('max of private bias: {}'.format(np.max(np.abs(priv_bias))))
+    print('mean of private bias: {}'.format(np.mean(np.abs(priv_bias))))
 
 
     # plot the bias vs the arm_mean (barplot with CI)
