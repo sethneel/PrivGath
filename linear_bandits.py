@@ -4,7 +4,7 @@ from operator import add
 import matplotlib.pyplot as plt
 import sys
 
-"""Module runs linear UCB Experiments with gaussian noise. This includes 
+"""Module runs linear UCB Experiments with bounded reward distributions. This includes 
 Usage: python linear_bandits.py 5 5 .001 .99 500 10000
 """
 
@@ -18,7 +18,7 @@ def get_min_dex(binary_string):
             return ind
         ind += 1
 
-
+# assumption of normal noise
 def get_lin_ucb(t, delta, lbda, contexts, history=None):
     """Return the index of the arm with highest UCB."""
     K = len(history.keys())
@@ -89,7 +89,7 @@ def get_betas(d, k):
 
 
 def get_sample(beta, x):
-    """Return sample from beta*x + norm."""
+    """Return sample from beta*x + N(0,1)."""
 
     # return np.random.uniform(-1, 1) + np.dot(beta, x)
     return np.random.normal(0, 1) + np.dot(beta, x)

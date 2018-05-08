@@ -1,15 +1,15 @@
 import numpy as np
-# from scipy.stats import truncnorm
 from operator import add
 import matplotlib.pyplot as plt
 import sys
-"""Module runs differentially private UCB Experiments with truncated gaussian noise. This includes 
+"""Module runs differentially private UCB Experiments with gaussian noise. This includes 
 an implementation of the counter mechanism https://eprint.iacr.org/2010/076.pdf
-Usage: python bandits.py 15 5 1000
+Usage: python bandits.py 1e6 10 50 .99 1 privgreed 
+T, K, n_sims, delta, eps, keyword
 """
 
 
-def private_counter(k, T, epsilon, sensitivity=2):
+def private_counter(k, T, epsilon, sensitivity=1):
     """Returns array of T representing sum of laplace noise added to means in epsilon d.p. private counter"""
     priv_noises = dict((u, []) for u in range(k))
     for t in range(k):
@@ -49,7 +49,7 @@ def get_ucb(delta, history=None):
     if history is None:
         return None
     K = len(history.keys())
-    ucb_list = [history[i][0]/history[i][1] + np.sqrt(2*np.log(1/delta)/history[i][1]) for i in range(K)]
+    ucb_list = [history[i][0]/history[i][1] + np.sqrt(np.log(2/delta)/(2*history[i][1])) for i in range(K)]
     ucb = np.argmax(ucb_list)
     return ucb
 
@@ -76,21 +76,31 @@ def get_means(gap =.1, k=5):
 
 
 def get_sample(mu):
-    """Return sample from N(mu, 1)"""
-    s = np.random.normal(mu, 1)
+    """Sample from Bern(mu)."""
+    s = float(np.random.binomial(1, mu, 1))
     return s
 
 
 def get_priv_ucb(delta, history, priv_noises, T, epsilon):
+    """Return next arm pulled by priv UCB."""
     if history is None:
         return None
     K = len(history.keys())
     gamma = K*np.power(np.log(T), 2)*np.log(K*T*np.log(T)*1.0/delta)*1.0/epsilon
     print('gamma:{}'.format(gamma))
     noisy_means = [history[a][0]/history[a][1] + priv_noises[a][int(history[a][1])] for a in range(K)]
-    ucb_list = [noisy_means[b] + np.sqrt(2*np.log(1/delta)/history[b][1]) + gamma/history[b][1] for b in range(K)]
+    ucb_list = [noisy_means[b] + np.sqrt(np.log(2/delta)/(history[b][1]*2)) + gamma/history[b][1] for b in range(K)]
     ucb = np.argmax(ucb_list)
     return ucb
+
+
+def get_priv_greedy(delta, history, priv_noises, T, epsilon):
+    """Return next arm pulled by private greedy algorithm."""
+    if history is None:
+        return None
+    K = len(history.keys())
+    noisy_means = [history[a][0]/history[a][1] + priv_noises[a][int(history[a][1])] for a in range(K)]
+    return np.argmax(noisy_means)
 
 
 def ucb_bandit_run(time_horizon=500, gap=.1, K=5):
@@ -118,13 +128,17 @@ def ucb_bandit_run(time_horizon=500, gap=.1, K=5):
     return [history, arm_pulls]
 
 
-def priv_ucb_bandit_run(time_horizon=500, gap=.1, epsilon=.1, k=5):
+def priv_bandit_run(time_horizon=500, gap=.1, epsilon=.1, k=5, keyword='privgreed'):
     """"Run epsilon-Private UCB algorithm w/ private counter
      up to time_horizon with K arms of gap .1. Return the history up to time_horizon.
     """
     arm_pulls = []
     means = get_means(gap, k)
     priv_noises = private_counter(k, time_horizon, epsilon, sensitivity=2)
+    if keyword == 'privgreed':
+        priv_pull = get_priv_greedy
+    if keyword == 'privucb':
+        priv_pull = get_priv_ucb
     # history at time 0
     history = dict((i, [0, 0]) for i in range(k))
     t = 1
@@ -136,7 +150,7 @@ def priv_ucb_bandit_run(time_horizon=500, gap=.1, epsilon=.1, k=5):
     # Run UCB Algorithm from t = K + 1 to t = time_horizon
     while t <= time_horizon:
         delta = 1.0 / (1.0 + t * np.log(t) * np.log(t))
-        arm_pull = get_priv_ucb(delta, history, priv_noises, time_horizon, epsilon)
+        arm_pull = priv_pull(delta, history, priv_noises, time_horizon, epsilon)
         arm_pulls.append(arm_pull)
         history = update_history(history, arm_pull, means)
         print(t)
@@ -157,16 +171,18 @@ def compute_avg_pseudo_regret(arm_pulls, mus):
 
 
 # Run bandit experiments, generate bias & regret plots
-#
+# keyword: either 'privgreed' or 'privucb'
+# T, K, n_sims, delta, eps, keyword= 10000, 5, 10, .95, 1, 'privgreed'
 if __name__ == "__main__":
-    T, K,  nsims, delta = sys.argv[1:]
+    T, K,  n_sims, delta, eps, keyword = sys.argv[1:]
     gap = .05
     K = int(K)
     mus = get_means(gap, K)
     cum_mu_hat = [0]*K
-    n_sims = int(nsims)
+    n_sims = int(n_sims)
     cum_av_regret = [0]*int(T)
-    print('T: {}, K: {}, gap: {}, n_sims: {}'.format(T, K, gap, nsims))
+    keyword = str(keyword)
+    print('T: {}, K: {}, gap: {}, n_sims: {}, epsilon: {}, keyword = {}'.format(T, K, gap, n_sims, eps, keyword))
     # Get sample means up to time T
     # Average over n_sims iterations
     # Compute Bias
@@ -209,10 +225,9 @@ if __name__ == "__main__":
     # Private Version
     cum_mu_hat = [0]*K
     #eps = 1.0/np.sqrt(T*K)
-    eps = .05
     cum_av_priv_regret = [0]*int(T)
     for j in range(n_sims):
-        private_bandit = priv_ucb_bandit_run(time_horizon=T, gap=gap, epsilon=eps, k=K)
+        private_bandit = priv_bandit_run(time_horizon=T, gap=gap, epsilon=eps, k=K, keyword=keyword)
         H_T_private = private_bandit[0]
         mu_hat = [H_T_private[i][0]/H_T_private[i][1] for i in range(K)]
         cum_mu_hat = map(add, cum_mu_hat, mu_hat)
