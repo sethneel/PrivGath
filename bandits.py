@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import sys
 """Module runs differentially private UCB Experiments with gaussian noise. This includes 
 an implementation of the counter mechanism https://eprint.iacr.org/2010/076.pdf
-Usage: python bandits.py 1e6 10 50 .99 1 privgreed 
-T, K, n_sims, delta, eps, keyword
+Usage: python bandits.py 100 5 1000 .99 .1 .1 .15 privgreed 
+T, K,  n_sims, delta, eps, gap, alpha, keyword
 """
 
 
@@ -87,7 +87,7 @@ def get_priv_ucb(delta, history, priv_noises, T, epsilon):
         return None
     K = len(history.keys())
     gamma = K*np.power(np.log(T), 2)*np.log(K*T*np.log(T)*1.0/delta)*1.0/epsilon
-    print('gamma:{}'.format(gamma))
+    #print('gamma:{}'.format(gamma))
     noisy_means = [history[a][0]/history[a][1] + priv_noises[a][int(history[a][1])] for a in range(K)]
     ucb_list = [noisy_means[b] + np.sqrt(np.log(2/delta)/(history[b][1]*2)) + gamma/history[b][1] for b in range(K)]
     ucb = np.argmax(ucb_list)
@@ -123,7 +123,7 @@ def ucb_bandit_run(time_horizon=500, gap=.1, K=5):
         arm_pull = get_ucb(delta, history)
         arm_pulls.append(arm_pull)
         history = update_history(history, arm_pull, means)
-        print(t)
+        #print(t)
         t += 1
     return [history, arm_pulls]
 
@@ -153,7 +153,7 @@ def priv_bandit_run(time_horizon=500, gap=.1, epsilon=.1, k=5, keyword='privgree
         arm_pull = priv_pull(delta, history, priv_noises, time_horizon, epsilon)
         arm_pulls.append(arm_pull)
         history = update_history(history, arm_pull, means)
-        print(t)
+        #print(t)
         t += 1
     return [history, arm_pulls]
 
@@ -170,12 +170,41 @@ def compute_avg_pseudo_regret(arm_pulls, mus):
     return cum_pseudo_regret
 
 
+# by Chernoff bound for a bernoulli random variable with mean p
+# given n samples iid, Pr[hat(p) <= p - sqrt(2log(1/alpha)/pn)] <= delta
+def chernoff_test(H_T, mus, alpha):
+    """"Conduct test on gathered data if mu >= mu_i at level alpha.
+    Return list where 1 indicates rejecting the null. 
+    """
+    n_pulls = [H_T[l][1] for l in H_T.keys()]
+    n_heads = [H_T[l][0] for l in H_T.keys()]
+    thresholds = [mus[i]-np.sqrt(2*np.log(1/alpha)/(mus[i]*n_pulls[i])) for i in range(len(mus))]
+    results = [np.int(n_heads[i]/n_pulls[i] < thresholds[i]) for i in range(len(mus))]
+    return results
+
+
+def priv_chernoff_test(H_T, mus, alpha, epsilon):
+    """"Conduct test on gathered data if mu >= mu_i at level alpha
+    using p-value correction from max information bounds. 
+    Return list where 1 indicates rejecting the null. 
+    """
+    n_pulls = [H_T[l][1] for l in H_T.keys()]
+    n_heads = [H_T[l][0] for l in H_T.keys()]
+    T = np.sum(n_pulls)
+    beta = 1
+    corrected_alpha = alpha/(np.power(2, np.log2(np.exp(1)))*(np.power(epsilon,2)*T/2 + epsilon*np.sqrt(T*np.log(2/beta))))
+    thresholds = [mus[i] - np.sqrt(2 * np.log(1 / corrected_alpha) / (mus[i] * n_pulls[i])) for i in range(len(mus))]
+    results = [np.int(n_heads[i] / n_pulls[i] < thresholds[i]) for i in range(len(mus))]
+    return results
+
+
 # Run bandit experiments, generate bias & regret plots
 # keyword: either 'privgreed' or 'privucb'
-# T, K, n_sims, delta, eps, keyword= 10000, 5, 10, .95, 1, 'privgreed'
+# T, K, n_sims, delta, eps, keyword= 10000, 5, 10, .95, 1, .1, .1, 'privgreed'
 if __name__ == "__main__":
-    T, K,  n_sims, delta, eps, keyword = sys.argv[1:]
-    gap = .05
+    T, K,  n_sims, delta, eps, gap, alpha, keyword = sys.argv[1:]
+    gap = float(gap)
+    alpha = float(alpha)
     K = int(K)
     mus = get_means(gap, K)
     cum_mu_hat = [0]*K
@@ -195,9 +224,12 @@ if __name__ == "__main__":
         arms_pulled = bandit[1]
         av_regret = compute_avg_pseudo_regret(arms_pulled, mus)
         cum_av_regret = map(add, cum_av_regret, av_regret)
+        type1_err = chernoff_test(H_T, mus, alpha)
+        av_type_err = map(add, av_type_err, type1_err)
 
     # Compute the bias.
     average_mu_hat = np.multiply(1.0/n_sims, cum_mu_hat)
+    av_type_err = np.multiply(1.0/n_sims, av_type_err)
     bias = map(add, average_mu_hat, np.multiply(-1.0, mus))
     av_av_regret = list(np.multiply(cum_av_regret, 1.0/n_sims))
     #  95% conf. lower bound for the bias (Hoeffding Inequality)
@@ -207,6 +239,7 @@ if __name__ == "__main__":
     print('non-private bias: {}'.format(bias))
     print('mean of non-priv bias:{}'.format(np.mean(np.abs(bias))))
     print('confidence width for bias: {}'.format(w))
+    print('average type 1 errors non-private: {}'.format(av_type_err))
 
     # plot the bias vs the arm_mean (barplot with CI)
     bars = bias
@@ -226,6 +259,9 @@ if __name__ == "__main__":
     cum_mu_hat = [0]*K
     #eps = 1.0/np.sqrt(T*K)
     cum_av_priv_regret = [0]*int(T)
+    av_type_err = [0]*int(K)
+    av_priv_err = [0]*int(K)
+
     for j in range(n_sims):
         private_bandit = priv_bandit_run(time_horizon=T, gap=gap, epsilon=eps, k=K, keyword=keyword)
         H_T_private = private_bandit[0]
@@ -234,9 +270,13 @@ if __name__ == "__main__":
         arms_pulled = private_bandit[1]
         av_regret_priv = compute_avg_pseudo_regret(arms_pulled, mus)
         cum_av_priv_regret = map(add, av_regret_priv, cum_av_priv_regret)
+        # hypothesis test
+        priv_type1_err = priv_chernoff_test(H_T, mus, alpha, eps)
+        av_priv_err = map(add, priv_type1_err, av_priv_err)
 
     # Compute the bias.
     average_mu_hat = np.multiply(1.0/n_sims, cum_mu_hat)
+    av_priv_err = np.multiply(1.0 / n_sims, av_priv_err)
     priv_bias = map(add, mus, np.multiply(-1.0, average_mu_hat))
     priv_av_av_regret = list(np.multiply(cum_av_priv_regret, 1.0/n_sims))
     w_priv = np.sqrt(-1*np.log(.975/2)/(2.0*n_sims))
@@ -244,7 +284,7 @@ if __name__ == "__main__":
     print('private bias: {}'.format(priv_bias))
     print('confidence width for bias: {}'.format(w_priv))
     print('mean of private bias: {}'.format(np.mean(np.abs(priv_bias))))
-
+    print('average type 1 errors private: {}'.format(av_priv_err))
 
     # plot the bias vs the arm_mean (barplot with CI)
     bars = priv_bias
