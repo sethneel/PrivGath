@@ -2,9 +2,10 @@ import numpy as np
 from operator import add
 import matplotlib.pyplot as plt
 import sys
-"""Module runs differentially private UCB Experiments with gaussian noise. This includes 
+
+"""Module runs differentially private UCB Experiments with Bernoulli rewards. This includes 
 an implementation of the counter mechanism https://eprint.iacr.org/2010/076.pdf
-Usage: python bandits.py 100 5 1000 .99 .1 .1 .15 privgreed 
+Usage: python bandits.py 100 5 10 .99 .1 .1 .15 privgreed 
 T, K,  n_sims, delta, eps, gap, alpha, keyword
 """
 
@@ -123,8 +124,8 @@ def ucb_bandit_run(time_horizon=500, gap=.1, K=5):
         arm_pull = get_ucb(delta, history)
         arm_pulls.append(arm_pull)
         history = update_history(history, arm_pull, means)
-        #print(t)
         t += 1
+    print('bandit run completed')
     return [history, arm_pulls]
 
 
@@ -155,6 +156,7 @@ def priv_bandit_run(time_horizon=500, gap=.1, epsilon=.1, k=5, keyword='privgree
         history = update_history(history, arm_pull, means)
         #print(t)
         t += 1
+    print('private bandit run completed')
     return [history, arm_pulls]
 
 
@@ -200,8 +202,9 @@ def priv_chernoff_test(H_T, mus, alpha, epsilon):
 
 # Run bandit experiments, generate bias & regret plots
 # keyword: either 'privgreed' or 'privucb'
-# T, K, n_sims, delta, eps, keyword= 10000, 5, 10, .95, 1, .1, .1, 'privgreed'
+# T, K, n_sims, delta, eps, gap, alpha, keyword = 1000000, 5, 100, .95, 1, .1, .1, 'privgreed'
 if __name__ == "__main__":
+
     T, K,  n_sims, delta, eps, gap, alpha, keyword = sys.argv[1:]
     gap = float(gap)
     alpha = float(alpha)
@@ -210,12 +213,12 @@ if __name__ == "__main__":
     cum_mu_hat = [0]*K
     n_sims = int(n_sims)
     cum_av_regret = [0]*int(T)
+    av_type_err = [0]*int(K)
     keyword = str(keyword)
     print('T: {}, K: {}, gap: {}, n_sims: {}, epsilon: {}, keyword = {}'.format(T, K, gap, n_sims, eps, keyword))
     # Get sample means up to time T
     # Average over n_sims iterations
     # Compute Bias
-
     for j in range(n_sims):
         bandit = ucb_bandit_run(time_horizon=T, gap=gap, K=K)
         H_T = bandit[0]
@@ -259,7 +262,6 @@ if __name__ == "__main__":
     cum_mu_hat = [0]*K
     #eps = 1.0/np.sqrt(T*K)
     cum_av_priv_regret = [0]*int(T)
-    av_type_err = [0]*int(K)
     av_priv_err = [0]*int(K)
 
     for j in range(n_sims):
